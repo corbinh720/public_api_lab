@@ -22,6 +22,12 @@ class CachedBookResponse(BaseModel):
     data: Book
 
 
+class BulkBookError(BaseModel):
+    isbn: str
+    status_code: int
+    detail: str
+
+
 book_cache: dict[str, Book] = {}
 
 
@@ -134,3 +140,22 @@ def search_books(title: str):
         )
 
     return books
+
+
+@app.post("/books/bulk", response_model=list[Book | BulkBookError])
+def get_books_bulk(isbns: list[str]):
+    results: list[Book | BulkBookError] = []
+
+    for isbn in isbns:
+        try:
+            results.append(get_book_by_isbn(isbn).data)
+        except HTTPException as error:
+            results.append(
+                BulkBookError(
+                    isbn=isbn,
+                    status_code=error.status_code,
+                    detail=error.detail,
+                )
+            )
+
+    return results

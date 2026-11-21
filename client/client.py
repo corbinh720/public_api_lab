@@ -72,5 +72,28 @@ def search_title(title: str):
         raise typer.Exit(code=1)
 
 
+@app.command("get-bulk")
+def get_bulk(isbns: list[str]):
+    """Look up multiple books by ISBN."""
+    try:
+        response = requests.post(
+            f"{BASE_URL}/books/bulk",
+            json=isbns,
+            timeout=10 * len(isbns) + 5,
+        )
+    except requests.RequestException as error:
+        typer.echo(f"Bulk lookup failed: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(f"Status Code: {response.status_code}")
+    try:
+        typer.echo(json.dumps(response.json(), indent=2, ensure_ascii=False))
+    except ValueError:
+        typer.echo(response.text)
+
+    if not response.ok:
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()
