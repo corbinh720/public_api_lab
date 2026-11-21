@@ -7,14 +7,14 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+ISBN_REGEX = r"(?:[0-9]{10}|[0-9]{13})"
+
 
 class Book(BaseModel):
     title: str
     author: str
     publish_date: str
     isbn: str
-
-ISBN_REGEX = r"(?:[0-9]{10}|[0-9]{13})"
 
 
 def validate_isbn(isbn: str) -> bool:
@@ -29,6 +29,8 @@ def parse_date(date_str: str) -> str:
             continue
 
     return date_str
+
+
 @app.get("/book/{isbn}", response_model=Book)
 def get_book_by_isbn(isbn: str):
     if not validate_isbn(isbn):
@@ -62,3 +64,38 @@ def get_book_by_isbn(isbn: str):
         publish_date=parse_date(book_data.get("publish_date") or "Unknown"),
         isbn=isbn,
     )
+
+
+@app.get("/books/search", response_model=list[Book])
+def search_books(title: str):
+    try:
+        response = requests.get(
+            "https://openlibrary.org/search.json",
+            params={
+                "title": title,
+                "limit": 5,
+                "fields": "title,author_name,first_publish_year,isbn",
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        results = response.json().get("docs", [])
+    except requests.RequestException:
+        raise HTTPException(status_code=500, detail="Error searching for books")
+
+    books = []
+    for result in results[:5]:
+        authors = result.get("author_name") or []
+        isbns = result.get("isbn") or []
+        year = result.get("first_publish_year")
+
+        books.append(
+            Book(
+                title=result.get("title") or "Unknown",
+                author=authors[0] if authors else "Unknown",
+                publish_date=parse_date(str(year)) if year else "Unknown",
+                isbn=isbns[0] if isbns else "Unknown",
+            )
+        )
+
+    return books
