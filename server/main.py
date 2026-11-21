@@ -29,12 +29,25 @@ def validate_isbn(isbn: str) -> bool:
     return re.fullmatch(ISBN_REGEX, isbn) is not None
 
 
-def parse_date(date_str: str) -> str:
-    for date_format in ("%Y-%m-%d", "%Y-%m", "%Y", "%B %d, %Y"):
+def parse_date(date_str: str, *, validate_range: bool = False) -> str:
+    date_formats = ("%Y-%m-%d", "%Y-%m", "%Y", "%B %d, %Y", "%b %d, %Y")
+
+    for date_format in date_formats:
         try:
-            return datetime.strptime(date_str, date_format).strftime("%Y-%m-%d")
+            parsed_date = datetime.strptime(date_str.strip(), date_format)
         except ValueError:
             continue
+
+        if validate_range and not 1800 <= parsed_date.year <= datetime.now().year:
+            raise HTTPException(
+                status_code=400,
+                detail="Publication year must be between 1800 and the current year",
+            )
+
+        return parsed_date.strftime("%Y-%m-%d")
+
+    if validate_range:
+        raise HTTPException(status_code=400, detail="Invalid publication date")
 
     return date_str
 
@@ -75,7 +88,10 @@ def get_book_by_isbn(isbn: str):
     book = Book(
         title=book_data.get("title", "Unknown"),
         author=authors[0].get("name", "Unknown") if authors else "Unknown",
-        publish_date=parse_date(book_data.get("publish_date") or "Unknown"),
+        publish_date=parse_date(
+            book_data.get("publish_date") or "Unknown",
+            validate_range=True,
+        ),
         isbn=isbn,
     )
     book_cache[isbn] = book
