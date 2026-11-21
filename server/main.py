@@ -17,6 +17,14 @@ class Book(BaseModel):
     isbn: str
 
 
+class CachedBookResponse(BaseModel):
+    cached: bool
+    data: Book
+
+
+book_cache: dict[str, Book] = {}
+
+
 def validate_isbn(isbn: str) -> bool:
     return re.fullmatch(ISBN_REGEX, isbn) is not None
 
@@ -31,13 +39,17 @@ def parse_date(date_str: str) -> str:
     return date_str
 
 
-@app.get("/book/{isbn}", response_model=Book)
+@app.get("/book/{isbn}", response_model=CachedBookResponse)
 def get_book_by_isbn(isbn: str):
     if not validate_isbn(isbn):
         raise HTTPException(
             status_code=400,
             detail="Invalid ISBN format (must be 10 or 13 digits)",
         )
+
+    cached_book = book_cache.get(isbn)
+    if cached_book is not None:
+        return CachedBookResponse(cached=True, data=cached_book)
 
     book_key = f"ISBN:{isbn}"
 
@@ -49,8 +61,10 @@ def get_book_by_isbn(isbn: str):
         )
         response.raise_for_status()
         data = response.json()
-    except requests.RequestException:
-        raise HTTPException(status_code=500, detail="Error fetching book data")
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=500, detail="Error fetching book data"
+        ) from error
 
     if book_key not in data:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -58,12 +72,15 @@ def get_book_by_isbn(isbn: str):
     book_data = data[book_key]
     authors = book_data.get("authors") or []
 
-    return Book(
+    book = Book(
         title=book_data.get("title", "Unknown"),
         author=authors[0].get("name", "Unknown") if authors else "Unknown",
         publish_date=parse_date(book_data.get("publish_date") or "Unknown"),
         isbn=isbn,
     )
+    book_cache[isbn] = book
+
+    return CachedBookResponse(cached=False, data=book)
 
 
 @app.get("/books/search", response_model=list[Book])
@@ -80,8 +97,10 @@ def search_books(title: str):
         )
         response.raise_for_status()
         results = response.json().get("docs", [])
-    except requests.RequestException:
-        raise HTTPException(status_code=500, detail="Error searching for books")
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=500, detail="Error searching for books"
+        ) from error
 
     books = []
     for result in results[:5]:
